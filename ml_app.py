@@ -270,7 +270,7 @@ def plot_boxplots_numeric_vs_target(df, target_col):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     numeric_cols = [col for col in numeric_cols if col != target_col]
     
-    if len(numeric_cols) == 0 or df[target_col].dtype not in [np.number]:
+    if len(numeric_cols) == 0 or not pd.api.types.is_numeric_dtype(df[target_col]):
         return None
     
     n_cols = min(3, len(numeric_cols))
@@ -292,7 +292,7 @@ def plot_boxplots_numeric_vs_target(df, target_col):
     for idx in range(len(numeric_cols), len(axes)):
         axes[idx].set_visible(False)
     
-    plt.suptitle(f"📉 Numeric Features vs Target ({target_col})", fontsize=16, fontweight='bold')
+    plt.suptitle(f"Numeric Features vs Target ({target_col})", fontsize=16, fontweight='bold')
     plt.tight_layout()
     return fig
 
