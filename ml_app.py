@@ -3,6 +3,12 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+# Configure matplotlib to handle emoji characters properly
+import matplotlib
+matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+matplotlib.rcParams['axes.unicode_minus'] = False
+matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial', 'sans-serif']
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
@@ -202,7 +208,7 @@ def plot_correlation_matrix(df):
     fig, ax = plt.subplots(figsize=(10, 8))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", ax=ax, 
                 square=True, cbar_kws={"shrink": .8})
-    plt.title("📊 Correlation Heatmap", fontsize=16, fontweight='bold')
+    plt.title("Correlation Heatmap", fontsize=16, fontweight='bold')
     plt.tight_layout()
     return fig
 
@@ -252,7 +258,7 @@ def plot_feature_distributions(df):
     for idx in range(plot_idx, len(axes)):
         axes[idx].set_visible(False)
     
-    plt.suptitle("📈 Feature Distributions", fontsize=16, fontweight='bold')
+    plt.suptitle("Feature Distributions", fontsize=16, fontweight='bold')
     plt.tight_layout()
     return fig
 
@@ -706,7 +712,15 @@ elif dataset_source == "Hugging Face":
 
 if df is not None and not df.empty:
     st.write("### 📊 Dataset Preview")
-    st.dataframe(df.head(10))
+    
+    # Fix Arrow serialization by ensuring proper data types
+    df_display = df.head(10).copy()
+    # Convert any mixed-type columns to string to avoid Arrow issues
+    for col in df_display.columns:
+        if df_display[col].dtype == 'object':
+            df_display[col] = df_display[col].astype(str)
+    
+    st.dataframe(df_display, use_container_width=True)
     st.write(f"**Shape:** {df.shape[0]} rows × {df.shape[1]} columns")
     
     # Dataset info
@@ -849,6 +863,10 @@ if df is not None and not df.empty:
                     
                     # Display classification metrics table
                     metrics_df = pd.DataFrame(metrics_data)
+                    # Fix Arrow serialization
+                    for col in metrics_df.columns:
+                        if metrics_df[col].dtype == 'object':
+                            metrics_df[col] = metrics_df[col].astype(str)
                     st.dataframe(metrics_df, use_container_width=True)
                     
                     # 2. Best Model Announcement
@@ -1025,6 +1043,10 @@ if df is not None and not df.empty:
                     
                     # Display regression metrics table
                     metrics_df = pd.DataFrame(metrics_data)
+                    # Fix Arrow serialization
+                    for col in metrics_df.columns:
+                        if metrics_df[col].dtype == 'object':
+                            metrics_df[col] = metrics_df[col].astype(str)
                     st.dataframe(metrics_df, use_container_width=True)
                     
                     # 2. Best Model Announcement
@@ -1126,11 +1148,135 @@ if df is not None and not df.empty:
                 trained_models = st.session_state['trained_models']
                 X_train = st.session_state['X_train']
                 is_classification = st.session_state.get('task_type', 'classification') == 'classification'
+                
+                # Debug information
+                st.write(f"🔍 Debug Info:")
+                st.write(f"- Trained models: {list(trained_models.keys())}")
+                st.write(f"- Training data shape: {X_train.shape}")
+                st.write(f"- Task type: {'Classification' if is_classification else 'Regression'}")
+                st.write(f"- Features: {list(X_train.columns)}")
             
                 # Model Selection for Predictions
                 model_names = list(trained_models.keys())
                 selected_model_name = st.selectbox("Select model for predictions:", model_names)
                 selected_model = trained_models[selected_model_name]
+                
+                # Simple test prediction
+                if st.button("🚀 Simple Test Prediction"):
+                    try:
+                        # Use first row of training data for prediction
+                        test_row = X_train.iloc[0:1].copy()
+                        st.write(f"🔍 Using first training row for prediction")
+                        st.write(f"📊 Input data: {test_row.iloc[0].to_dict()}")
+                        
+                        if is_classification:
+                            pred = selected_model.predict(test_row)[0]
+                            proba = selected_model.predict_proba(test_row)[0]
+                            classes = selected_model.classes_
+                            
+                            st.success(f"🎯 **Predicted Class: {pred}**")
+                            st.write(f"📊 **Probabilities:** {dict(zip(classes, proba))}")
+                            
+                            # Store simple result
+                            st.session_state['last_prediction'] = {
+                                'prediction': pred,
+                                'probabilities': proba,
+                                'classes': classes,
+                                'model_name': selected_model_name
+                            }
+                            
+                            # Also store in the main prediction_result key for display
+                            st.session_state['prediction_result'] = {
+                                'prediction': pred,
+                                'probabilities': proba,
+                                'classes': classes,
+                                'model_name': selected_model_name,
+                                'is_classification': True
+                            }
+                        else:
+                            pred = selected_model.predict(test_row)[0]
+                            st.success(f"🎯 **Predicted Value: {pred:.3f}**")
+                            
+                            # Store simple result
+                            st.session_state['last_prediction'] = {
+                                'prediction': pred,
+                                'model_name': selected_model_name
+                            }
+                            
+                            # Also store in the main prediction_result key for display
+                            st.session_state['prediction_result'] = {
+                                'prediction': pred,
+                                'model_name': selected_model_name,
+                                'is_classification': False
+                            }
+                        
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Simple test failed: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                
+                # Quick test prediction
+                if st.button("🧪 Test Quick Prediction"):
+                    try:
+                        st.write("🔍 **Debug Info for Test Prediction:**")
+                        st.write(f"- X_train shape: {X_train.shape}")
+                        st.write(f"- X_train dtypes: {X_train.dtypes.to_dict()}")
+                        st.write(f"- X_train columns: {list(X_train.columns)}")
+                        st.write(f"- Model type: {type(selected_model)}")
+                        
+                        # Use median values for all features
+                        test_input = X_train.median().values.reshape(1, -1)
+                        test_input_df = pd.DataFrame(test_input, columns=X_train.columns)
+                        
+                        st.write(f"- Test input shape: {test_input_df.shape}")
+                        st.write(f"- Test input dtypes: {test_input_df.dtypes.to_dict()}")
+                        
+                        if is_classification:
+                            test_pred = selected_model.predict(test_input_df)[0]
+                            test_proba = selected_model.predict_proba(test_input_df)[0]
+                            st.success(f"✅ Test prediction successful! Predicted class: {test_pred}")
+                            st.write(f"📊 Probabilities: {test_proba}")
+                            st.write(f"📊 Classes: {selected_model.classes_}")
+                        else:
+                            test_pred = selected_model.predict(test_input_df)[0]
+                            st.success(f"✅ Test prediction successful! Predicted value: {test_pred:.3f}")
+                        
+                        # Store test result with proper structure
+                        if is_classification:
+                            st.session_state['prediction_result'] = {
+                                'prediction': test_pred,
+                                'probabilities': test_proba,
+                                'classes': selected_model.classes_,
+                                'model_name': selected_model_name,
+                                'input_data': {col: float(X_train[col].median()) for col in X_train.columns},
+                                'is_classification': True
+                            }
+                        else:
+                            st.session_state['prediction_result'] = {
+                                'prediction': float(test_pred),
+                                'model_name': selected_model_name,
+                                'input_data': {col: float(X_train[col].median()) for col in X_train.columns},
+                                'is_classification': False
+                            }
+                        
+                        # Also store in simple format for immediate display
+                        st.session_state['last_prediction'] = {
+                            'prediction': test_pred,
+                            'probabilities': test_proba if is_classification else None,
+                            'classes': selected_model.classes_ if is_classification else None,
+                            'model_name': selected_model_name
+                        }
+                        
+                        st.write("✅ **Prediction stored in session state!**")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Test prediction failed: {str(e)}")
+                        st.write(f"🔍 Error type: {type(e).__name__}")
+                        import traceback
+                        st.code(traceback.format_exc())
                 
                 # Prediction Type Selection
                 pred_type = st.radio("Choose prediction type:", ["Manual Input", "Batch Upload"])
@@ -1146,50 +1292,103 @@ if df is not None and not df.empty:
                     cols = st.columns(min(3, len(feature_cols)))
                     for i, col in enumerate(feature_cols):
                         with cols[i % len(cols)]:
-                            if X_train[col].dtype in ['int64', 'float64']:
-                                # Numeric input
-                                min_val = float(X_train[col].min())
-                                max_val = float(X_train[col].max())
-                                input_data[col] = st.number_input(
-                                    f"{col}", 
-                                    min_value=min_val, 
-                                    max_value=max_val, 
-                                    value=float(X_train[col].median())
-                                )
-                            else:
-                                # Categorical input
-                                unique_vals = X_train[col].unique()
-                                input_data[col] = st.selectbox(f"{col}", unique_vals)
+                            # Always treat as numeric since preprocessing converts everything to numeric
+                            min_val = float(X_train[col].min())
+                            max_val = float(X_train[col].max())
+                            median_val = float(X_train[col].median())
+                            
+                            input_data[col] = st.number_input(
+                                f"{col}", 
+                                min_value=min_val, 
+                                max_value=max_val, 
+                                value=median_val,
+                                step=(max_val - min_val) / 100 if max_val != min_val else 0.1,
+                                format="%.3f"
+                            )
                     
                     if st.button("🔮 Make Prediction", type="primary"):
-                        # Convert to DataFrame
-                        input_df = pd.DataFrame([input_data])
-                        
-                        # Make prediction
-                        if is_classification:
-                            pred = selected_model.predict(input_df)[0]
-                            pred_proba = selected_model.predict_proba(input_df)[0]
-                            classes = selected_model.classes_
+                        try:
+                            st.write("🔄 **Processing Manual Prediction...**")
                             
-                            # Store prediction results in session state
-                            st.session_state['prediction_result'] = {
-                                'prediction': pred,
-                                'probabilities': pred_proba,
-                                'classes': classes,
-                                'model_name': selected_model_name,
-                                'input_data': input_data,
-                                'is_classification': True
-                            }
-                        else:
-                            pred = selected_model.predict(input_df)[0]
+                            # Convert input data to DataFrame
+                            input_df = pd.DataFrame([input_data])
+                            st.write(f"📊 Input DataFrame created with shape: {input_df.shape}")
                             
-                            # Store prediction results in session state
-                            st.session_state['prediction_result'] = {
-                                'prediction': pred,
-                                'model_name': selected_model_name,
-                                'input_data': input_data,
-                                'is_classification': False
-                            }
+                            # Ensure all values are numeric
+                            for col in input_df.columns:
+                                input_df[col] = pd.to_numeric(input_df[col], errors='coerce')
+                            
+                            # Check for any NaN values and fill with median
+                            nan_cols = input_df.columns[input_df.isna().any()].tolist()
+                            if nan_cols:
+                                st.write(f"⚠️ Found NaN values in columns: {nan_cols}")
+                                for col in nan_cols:
+                                    input_df[col] = X_train[col].median()
+                            
+                            st.write(f"📋 Final input data: {input_df.iloc[0].to_dict()}")
+                            
+                            # Make prediction
+                            if is_classification:
+                                st.write("🔮 **Making Classification Prediction...**")
+                                pred = selected_model.predict(input_df)[0]
+                                pred_proba = selected_model.predict_proba(input_df)[0]
+                                classes = selected_model.classes_
+                                
+                                st.success(f"🎯 **PREDICTED CLASS: {pred}**")
+                                st.write(f"📊 **Confidence Scores:**")
+                                for i, (cls, prob) in enumerate(zip(classes, pred_proba)):
+                                    st.write(f"   - Class {cls}: {prob:.3f} ({prob:.1%})")
+                                
+                                # Store results in simple format for immediate display
+                                st.session_state['last_prediction'] = {
+                                    'prediction': pred,
+                                    'probabilities': pred_proba,
+                                    'classes': classes,
+                                    'model_name': selected_model_name,
+                                    'input_data': input_data
+                                }
+                                
+                                # Also store in the main prediction_result key for display
+                                st.session_state['prediction_result'] = {
+                                    'prediction': pred,
+                                    'probabilities': pred_proba,
+                                    'classes': classes,
+                                    'model_name': selected_model_name,
+                                    'input_data': input_data,
+                                    'is_classification': True
+                                }
+                                
+                            else:
+                                st.write("🔮 **Making Regression Prediction...**")
+                                pred = selected_model.predict(input_df)[0]
+                                
+                                st.success(f"🎯 **PREDICTED VALUE: {pred:.3f}**")
+                                
+                                # Store results in simple format for immediate display
+                                st.session_state['last_prediction'] = {
+                                    'prediction': pred,
+                                    'model_name': selected_model_name,
+                                    'input_data': input_data
+                                }
+                                
+                                # Also store in the main prediction_result key for display
+                                st.session_state['prediction_result'] = {
+                                    'prediction': pred,
+                                    'model_name': selected_model_name,
+                                    'input_data': input_data,
+                                    'is_classification': False
+                                }
+                            
+                            st.success("✅ **Prediction completed successfully!**")
+                            st.balloons()
+                            
+                        except Exception as e:
+                            st.error(f"❌ **Prediction failed: {str(e)}**")
+                            st.write(f"🔍 **Error type:** {type(e).__name__}")
+                            st.write("📝 **Full error details:**")
+                            import traceback
+                            st.code(traceback.format_exc())
+                            st.info("💡 **Tip:** Make sure all input values are within the expected ranges for your dataset.")
                 
                 else:  # Batch Upload
                     st.subheader("📁 Batch Predictions")
@@ -1198,23 +1397,52 @@ if df is not None and not df.empty:
                     if uploaded_pred_file is not None:
                         pred_df = pd.read_csv(uploaded_pred_file)
                         st.write("**Uploaded Data Preview:**")
-                        st.dataframe(pred_df.head())
+                        
+                        # Fix Arrow serialization for display
+                        pred_df_display = pred_df.head().copy()
+                        for col in pred_df_display.columns:
+                            if pred_df_display[col].dtype == 'object':
+                                pred_df_display[col] = pred_df_display[col].astype(str)
+                        
+                        st.dataframe(pred_df_display, use_container_width=True)
                         
                         if st.button("🔮 Make Batch Predictions", type="primary"):
-                            # Ensure same features as training data
-                            missing_cols = set(X_train.columns) - set(pred_df.columns)
-                            if missing_cols:
-                                st.error(f"Missing columns: {missing_cols}")
-                            else:
+                            try:
+                                st.write("🔄 **Processing Batch Predictions...**")
+                                
+                                # Check for missing columns
+                                missing_cols = set(X_train.columns) - set(pred_df.columns)
+                                if missing_cols:
+                                    st.error(f"❌ **Missing columns:** {missing_cols}")
+                                    st.info("💡 **Please ensure your CSV file contains all the required feature columns.**")
+                                    st.stop()
+                                
+                                # Prepare data for prediction
+                                pred_df_subset = pred_df[X_train.columns].copy()
+                                st.write(f"📊 **Processing {len(pred_df_subset)} rows with {len(pred_df_subset.columns)} features**")
+                                
+                                # Convert all columns to numeric
+                                for col in pred_df_subset.columns:
+                                    pred_df_subset[col] = pd.to_numeric(pred_df_subset[col], errors='coerce')
+                                
+                                # Check for and fill NaN values
+                                nan_counts = pred_df_subset.isna().sum()
+                                if nan_counts.sum() > 0:
+                                    st.write(f"⚠️ **Found NaN values:** {nan_counts[nan_counts > 0].to_dict()}")
+                                    for col in pred_df_subset.columns:
+                                        if pred_df_subset[col].isna().any():
+                                            pred_df_subset[col] = pred_df_subset[col].fillna(X_train[col].median())
+                                
                                 # Make predictions
-                                pred_df_subset = pred_df[X_train.columns]
+                                st.write("🔮 **Making predictions...**")
                                 predictions = selected_model.predict(pred_df_subset)
                                 
-                                # Add predictions to dataframe
+                                # Create results dataframe
                                 result_df = pred_df.copy()
                                 result_df['Prediction'] = predictions
                                 
                                 if is_classification:
+                                    st.write("📊 **Calculating probabilities...**")
                                     probabilities = selected_model.predict_proba(pred_df_subset)
                                     for i, class_name in enumerate(selected_model.classes_):
                                         result_df[f'Probability_{class_name}'] = probabilities[:, i]
@@ -1226,10 +1454,52 @@ if df is not None and not df.empty:
                                     'is_classification': is_classification,
                                     'classes': selected_model.classes_ if is_classification else None
                                 }
+                                
+                                st.success(f"✅ **Batch predictions completed successfully!**")
+                                st.write(f"📊 **Processed {len(result_df)} rows**")
+                                st.write(f"🎯 **Sample predictions:** {predictions[:5].tolist()}")
+                                st.balloons()
+                                
+                            except Exception as e:
+                                st.error(f"❌ **Batch prediction failed: {str(e)}**")
+                                st.write(f"🔍 **Error type:** {type(e).__name__}")
+                                st.write("📝 **Full error details:**")
+                                import traceback
+                                st.code(traceback.format_exc())
+                                st.info("💡 **Tip:** Ensure your CSV file has the same column names as the training data.")
+                
+                # Clear predictions button
+                if st.button("🗑️ Clear All Predictions"):
+                    if 'last_prediction' in st.session_state:
+                        del st.session_state['last_prediction']
+                    if 'prediction_result' in st.session_state:
+                        del st.session_state['prediction_result']
+                    if 'batch_prediction_result' in st.session_state:
+                        del st.session_state['batch_prediction_result']
+                    st.success("✅ All predictions cleared!")
+                    st.rerun()
+                
+                # Debug: Show session state
+                st.write("🔍 **Session State Debug:**")
+                st.write(f"- Keys in session state: {list(st.session_state.keys())}")
+                st.write(f"- Has prediction_result: {'prediction_result' in st.session_state}")
+                st.write(f"- Has last_prediction: {'last_prediction' in st.session_state}")
+                st.write(f"- Has batch_prediction_result: {'batch_prediction_result' in st.session_state}")
+                
+                # Simple prediction display for testing
+                if 'last_prediction' in st.session_state:
+                    st.subheader("🎯 Last Prediction Result")
+                    pred_data = st.session_state['last_prediction']
+                    st.success(f"✅ Prediction: {pred_data['prediction']}")
+                    if 'probabilities' in pred_data:
+                        st.write(f"📊 Probabilities: {pred_data['probabilities']}")
+                    if 'classes' in pred_data:
+                        st.write(f"📊 Classes: {pred_data['classes']}")
                 
                 # Display Prediction Results
                 if 'prediction_result' in st.session_state:
                     result = st.session_state['prediction_result']
+                    st.write(f"✅ Found prediction result: {result}")
                     
                     st.subheader("🎯 Prediction Results")
                     
@@ -1306,7 +1576,7 @@ if df is not None and not df.empty:
                         # Detailed probability table
                         st.subheader("📋 Detailed Probabilities")
                         prob_table = pd.DataFrame({
-                            'Class': classes,
+                            'Class': classes.astype(str),
                             'Probability': pred_proba,
                             'Percentage': [f"{p:.1%}" for p in pred_proba]
                         }).sort_values('Probability', ascending=False)
@@ -1368,7 +1638,14 @@ if df is not None and not df.empty:
                     
                     # Results table
                     st.subheader("📋 Detailed Results")
-                    st.dataframe(batch_result['results_df'], use_container_width=True)
+                    
+                    # Fix Arrow serialization for results display
+                    results_df_display = batch_result['results_df'].copy()
+                    for col in results_df_display.columns:
+                        if results_df_display[col].dtype == 'object':
+                            results_df_display[col] = results_df_display[col].astype(str)
+                    
+                    st.dataframe(results_df_display, use_container_width=True)
                     
                     # Download results
                     csv = batch_result['results_df'].to_csv(index=False)
@@ -1426,15 +1703,20 @@ if df is not None and not df.empty:
                 st.subheader("📊 Data Types")
                 dtype_df = pd.DataFrame({
                     'Column': df.columns,
-                    'Data Type': df.dtypes,
+                    'Data Type': df.dtypes.astype(str),
                     'Non-Null Count': df.count(),
                     'Null Count': df.isnull().sum()
                 })
-                st.dataframe(dtype_df)
+                st.dataframe(dtype_df, use_container_width=True)
             
             with col2:
                 st.subheader("📈 Statistical Summary")
-                st.dataframe(df.describe())
+                # Fix Arrow serialization for describe output
+                describe_df = df.describe()
+                for col in describe_df.columns:
+                    if describe_df[col].dtype == 'object':
+                        describe_df[col] = describe_df[col].astype(str)
+                st.dataframe(describe_df, use_container_width=True)
             
             st.subheader("🔍 Missing Values")
             missing_data = df.isnull().sum()
