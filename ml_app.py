@@ -3,6 +3,12 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+import os
+import json
+import tempfile
+import zipfile
+import glob
+import shutil
 
 # Configure matplotlib to handle emoji characters properly
 import matplotlib
@@ -20,6 +26,14 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 import openml
 from datasets import load_dataset
 from scipy import stats
+
+# Kaggle API imports
+try:
+    from kaggle.api.kaggle_api_extended import KaggleApi
+    KAGGLE_AVAILABLE = True
+except ImportError:
+    KAGGLE_AVAILABLE = False
+    st.warning("⚠️ Kaggle API not available. Install with: pip install kaggle")
 
 # Set page config
 st.set_page_config(page_title="ML Playground", layout="wide")
@@ -71,6 +85,86 @@ def load_huggingface_dataset(name):
     except Exception as e:
         st.error(f"Failed to load Hugging Face dataset {name}: {str(e)}")
         return None
+
+# Kaggle API functions
+def setup_kaggle_api():
+    """Setup Kaggle API authentication"""
+    if not KAGGLE_AVAILABLE:
+        return None
+    
+    try:
+        # Create temp directory for credentials
+        creds_dir = tempfile.mkdtemp()
+        os.makedirs(os.path.join(creds_dir, ".kaggle"), exist_ok=True)
+        kaggle_json_path = os.path.join(creds_dir, ".kaggle", "kaggle.json")
+        
+        # Use hardcoded credentials (you can modify these)
+        creds = {
+            "username": "sinchanamaruthii",
+            "key": "150ecdf7a0d87753b8dd28737f659343",
+        }
+        with open(kaggle_json_path, "w") as f:
+            json.dump(creds, f)
+        
+        os.environ["KAGGLE_CONFIG_DIR"] = os.path.dirname(kaggle_json_path)
+        api = KaggleApi()
+        api.authenticate()
+        return api
+    except Exception as e:
+        st.error(f"❌ Kaggle API authentication failed: {str(e)}")
+        return None
+
+def download_kaggle_dataset(dataset_ref):
+    """Download Kaggle dataset and return DataFrame"""
+    if not KAGGLE_AVAILABLE:
+        return None
+    
+    try:
+        # Create temp directory
+        temp_dir = tempfile.mkdtemp(prefix="kaggle_download_")
+        
+        # Download dataset
+        api = setup_kaggle_api()
+        if api is None:
+            return None
+        
+        api.dataset_download_files(dataset_ref, path=temp_dir, unzip=True, quiet=True)
+        
+        # Find CSV files
+        csv_files = glob.glob(os.path.join(temp_dir, "**", "*.csv"), recursive=True)
+        
+        if csv_files:
+            # Use the largest CSV file
+            largest_csv = max(csv_files, key=os.path.getsize)
+            df = pd.read_csv(largest_csv)
+            
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            return df
+        else:
+            st.warning("No CSV files found in the downloaded dataset")
+            return None
+            
+    except Exception as e:
+        st.error(f"Failed to download Kaggle dataset {dataset_ref}: {str(e)}")
+        return None
+
+def search_kaggle_datasets(query, max_results=10):
+    """Search Kaggle datasets"""
+    if not KAGGLE_AVAILABLE:
+        return []
+    
+    try:
+        api = setup_kaggle_api()
+        if api is None:
+            return []
+        
+        datasets = api.dataset_list(search=query, max_size=50000000)  # 50MB limit
+        return datasets[:max_results]
+    except Exception as e:
+        st.error(f"Failed to search Kaggle datasets: {str(e)}")
+        return []
 
 # Preprocessing function
 def preprocess_data(df, target_col):
@@ -596,7 +690,7 @@ def plot_classification_report_table(y_true, y_pred, model_name="Model"):
 # Main App Interface
 # Dataset selection
 st.sidebar.header("📂 Dataset Options")
-dataset_source = st.sidebar.radio("Choose dataset source:", ["Upload CSV", "OpenML", "Hugging Face"])
+dataset_source = st.sidebar.radio("Choose dataset source:", ["Upload CSV", "OpenML", "Hugging Face", "Fetch from Kaggle"])
 
 # Add info about dataset sources
 with st.sidebar.expander("ℹ️ Dataset Info"):
@@ -611,6 +705,10 @@ with st.sidebar.expander("ℹ️ Dataset Info"):
     - Sentiment: IMDB, Amazon, Yelp reviews
     - Classification: News, DBpedia
     - GLUE benchmark tasks
+    
+    **🏆 Kaggle**: Popular ML competition datasets
+    - Titanic, House Prices, Credit Card Fraud
+    - Search and download directly from Kaggle
     """)
 
 df = None
@@ -709,6 +807,96 @@ elif dataset_source == "Hugging Face":
                 st.error("❌ Failed to load dataset from Hugging Face")
             else:
                 st.success(f"✅ Successfully loaded dataset {hf_name}")
+
+elif dataset_source == "Fetch from Kaggle":
+    st.sidebar.subheader("🏆 Kaggle Datasets")
+    
+    if not KAGGLE_AVAILABLE:
+        st.sidebar.error("❌ Kaggle API not available. Install with: pip install kaggle")
+    else:
+        # Popular Kaggle datasets
+        st.sidebar.subheader("⭐ Popular Datasets")
+        popular_kaggle_datasets = {
+            "Titanic - Machine Learning from Disaster": "c/titanic",
+            "House Prices - Advanced Regression": "c/house-prices-advanced-regression-techniques",
+            "Credit Card Fraud Detection": "mlg-ulb/creditcardfraud",
+            "Iris Species": "uciml/iris",
+            "Wine Quality": "rajyellow46/wine-quality",
+            "Boston Housing": "schirmerchad/bostonhoustingmlnd",
+            "Spam Email Detection": "uciml/sms-spam-collection-dataset",
+            "Customer Segmentation": "vjchoudhary7/customer-segmentation-tutorial-in-python"
+        }
+        
+        # Dataset selection method
+        kaggle_selection_method = st.sidebar.radio("Choose selection method:", ["Popular Datasets", "Search Kaggle", "Manual Input"])
+        
+        if kaggle_selection_method == "Popular Datasets":
+            selected_kaggle_dataset = st.sidebar.selectbox(
+                "Select a dataset:",
+                options=list(popular_kaggle_datasets.keys()),
+                index=0
+            )
+            kaggle_ref = popular_kaggle_datasets[selected_kaggle_dataset]
+            st.sidebar.caption(f"Reference: {kaggle_ref}")
+            
+            if st.sidebar.button("📥 Download from Kaggle"):
+                with st.spinner(f"🔄 Downloading {selected_kaggle_dataset}..."):
+                    df = download_kaggle_dataset(kaggle_ref)
+                    if df is None:
+                        st.error("❌ Failed to download dataset from Kaggle")
+                    else:
+                        st.success(f"✅ Successfully downloaded {selected_kaggle_dataset}")
+        
+        elif kaggle_selection_method == "Search Kaggle":
+            search_query = st.sidebar.text_input("Search Kaggle datasets", placeholder="e.g., titanic, housing, fraud")
+            
+            if st.sidebar.button("🔍 Search Kaggle"):
+                if search_query:
+                    with st.spinner("🔍 Searching Kaggle datasets..."):
+                        datasets = search_kaggle_datasets(search_query, max_results=5)
+                        
+                        if datasets:
+                            st.sidebar.success(f"Found {len(datasets)} datasets!")
+                            
+                            # Store search results in session state
+                            st.session_state['kaggle_search_results'] = datasets
+                            st.session_state['kaggle_search_query'] = search_query
+                        else:
+                            st.sidebar.warning("No datasets found. Try a different search term.")
+            
+            # Display search results
+            if 'kaggle_search_results' in st.session_state:
+                st.sidebar.subheader(f"🔍 Search Results for: '{st.session_state['kaggle_search_query']}'")
+                
+                for i, dataset in enumerate(st.session_state['kaggle_search_results']):
+                    with st.sidebar.expander(f"{i+1}. {dataset.title or 'No title'}"):
+                        st.write(f"**Reference:** `{dataset.ref}`")
+                        st.write(f"**Description:** {dataset.subtitle or 'No description'}")
+                        st.write(f"**Size:** {dataset.size or 'Unknown'}")
+                        st.write(f"**Last Updated:** {dataset.lastUpdated or 'Unknown'}")
+                        
+                        if st.button(f"📥 Download", key=f"download_search_{i}"):
+                            with st.spinner(f"🔄 Downloading {dataset.title}..."):
+                                df = download_kaggle_dataset(dataset.ref)
+                                if df is None:
+                                    st.error("❌ Failed to download dataset")
+                                else:
+                                    st.success(f"✅ Successfully downloaded {dataset.title}")
+        
+        else:  # Manual Input
+            kaggle_ref = st.sidebar.text_input("Enter Kaggle dataset reference", placeholder="e.g., c/titanic")
+            st.sidebar.caption("👉 Format: username/dataset-name or c/competition-name")
+            
+            if st.sidebar.button("📥 Download from Kaggle"):
+                if kaggle_ref:
+                    with st.spinner(f"🔄 Downloading dataset {kaggle_ref}..."):
+                        df = download_kaggle_dataset(kaggle_ref)
+                        if df is None:
+                            st.error("❌ Failed to download dataset from Kaggle")
+                        else:
+                            st.success(f"✅ Successfully downloaded dataset {kaggle_ref}")
+                else:
+                    st.sidebar.warning("Please enter a dataset reference")
 
 if df is not None and not df.empty:
     st.write("### 📊 Dataset Preview")
