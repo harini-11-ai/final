@@ -916,7 +916,7 @@ elif dataset_source == "Fetch from Kaggle":
         }
         
         # Dataset selection method
-        kaggle_selection_method = st.sidebar.radio("Choose selection method:", ["Popular Datasets", "Search Kaggle", "Manual Input"])
+        kaggle_selection_method = st.sidebar.radio("Choose selection method:", ["Popular Datasets", "Search Kaggle"])
         
         if kaggle_selection_method == "Popular Datasets":
             selected_kaggle_dataset = st.sidebar.selectbox(
@@ -973,20 +973,6 @@ elif dataset_source == "Fetch from Kaggle":
                                 else:
                                     st.success(f"✅ Successfully downloaded {dataset.title}")
         
-        else:  # Manual Input
-            kaggle_ref = st.sidebar.text_input("Enter Kaggle dataset reference", placeholder="e.g., c/titanic")
-            st.sidebar.caption("👉 Format: username/dataset-name or c/competition-name")
-            
-            if st.sidebar.button("📥 Download from Kaggle"):
-                if kaggle_ref:
-                    with st.spinner(f"🔄 Downloading dataset {kaggle_ref}..."):
-                        df = download_kaggle_dataset(kaggle_ref)
-                        if df is None:
-                            st.error("❌ Failed to download dataset from Kaggle")
-                        else:
-                            st.success(f"✅ Successfully downloaded dataset {kaggle_ref}")
-                else:
-                    st.sidebar.warning("Please enter a dataset reference")
 
 if df is not None and not df.empty:
     st.write("### 📊 Dataset Preview")
