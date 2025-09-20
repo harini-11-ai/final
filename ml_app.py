@@ -28,6 +28,7 @@ from datasets import load_dataset
 from scipy import stats
 
 # Set up Kaggle environment variables early to avoid authentication issues
+# NOTE: Replace these with your own Kaggle API credentials from kaggle.com/account
 os.environ["KAGGLE_USERNAME"] = "sinchanamaruthii"
 os.environ["KAGGLE_KEY"] = "150ecdf7a0d87753b8dd28737f659343"
 
@@ -132,9 +133,42 @@ def setup_kaggle_api():
         st.error(f"❌ Kaggle API authentication failed: {str(e)}")
         return None
 
+def get_sample_dataset(dataset_ref):
+    """Get sample datasets when Kaggle API is not available"""
+    sample_datasets = {
+        "c/titanic": pd.DataFrame({
+            'PassengerId': range(1, 892),
+            'Survived': np.random.choice([0, 1], 891, p=[0.62, 0.38]),
+            'Pclass': np.random.choice([1, 2, 3], 891, p=[0.24, 0.21, 0.55]),
+            'Name': [f'Passenger_{i}' for i in range(1, 892)],
+            'Sex': np.random.choice(['male', 'female'], 891, p=[0.65, 0.35]),
+            'Age': np.random.normal(30, 14, 891).clip(0, 80),
+            'SibSp': np.random.choice([0, 1, 2, 3, 4, 5, 8], 891, p=[0.68, 0.23, 0.06, 0.02, 0.01, 0.0, 0.0]),
+            'Parch': np.random.choice([0, 1, 2, 3, 4, 5, 6], 891, p=[0.76, 0.13, 0.08, 0.02, 0.01, 0.0, 0.0]),
+            'Ticket': [f'Ticket_{i}' for i in range(1, 892)],
+            'Fare': np.random.lognormal(3, 1, 891).clip(0, 300),
+            'Cabin': [f'C{i}' if np.random.random() > 0.77 else None for i in range(1, 892)],
+            'Embarked': np.random.choice(['C', 'Q', 'S'], 891, p=[0.19, 0.09, 0.72])
+        }),
+        "uciml/iris": pd.DataFrame({
+            'sepal_length': np.random.normal(5.8, 0.8, 150),
+            'sepal_width': np.random.normal(3.0, 0.4, 150),
+            'petal_length': np.random.normal(3.8, 1.8, 150),
+            'petal_width': np.random.normal(1.2, 0.8, 150),
+            'species': np.repeat(['setosa', 'versicolor', 'virginica'], 50)
+        })
+    }
+    
+    return sample_datasets.get(dataset_ref, None)
+
 def download_kaggle_dataset(dataset_ref):
     """Download Kaggle dataset and return DataFrame"""
     if not check_kaggle_availability():
+        # Try to provide sample data
+        sample_data = get_sample_dataset(dataset_ref)
+        if sample_data is not None:
+            st.info(f"🎭 Demo Mode: Using sample data for {dataset_ref} (Kaggle API not available)")
+            return sample_data
         return None
     
     try:
@@ -144,6 +178,11 @@ def download_kaggle_dataset(dataset_ref):
         # Download dataset
         api = setup_kaggle_api()
         if api is None:
+            # Fallback to sample data
+            sample_data = get_sample_dataset(dataset_ref)
+            if sample_data is not None:
+                st.info(f"🎭 Demo Mode: Using sample data for {dataset_ref} (API authentication failed)")
+                return sample_data
             return None
         
         api.dataset_download_files(dataset_ref, path=temp_dir, unzip=True, quiet=True)
@@ -185,7 +224,18 @@ def download_kaggle_dataset(dataset_ref):
             return None
             
     except Exception as e:
-        st.error(f"Failed to download Kaggle dataset {dataset_ref}: {str(e)}")
+        error_msg = str(e)
+        if "403" in error_msg or "Forbidden" in error_msg:
+            # Fallback to sample data for 403 errors
+            sample_data = get_sample_dataset(dataset_ref)
+            if sample_data is not None:
+                st.info(f"🎭 Demo Mode: Using sample data for {dataset_ref} (Kaggle API access denied - 403 Forbidden)")
+                return sample_data
+            else:
+                st.error(f"❌ Kaggle API access denied (403 Forbidden) and no sample data available for {dataset_ref}")
+                st.info("💡 To use real Kaggle datasets, please set up your own Kaggle API credentials at kaggle.com/account")
+        else:
+            st.error(f"Failed to download Kaggle dataset {dataset_ref}: {str(e)}")
         return None
 
 def search_kaggle_datasets(query, max_results=10):
