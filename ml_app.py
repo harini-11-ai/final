@@ -27,13 +27,12 @@ import openml
 from datasets import load_dataset
 from scipy import stats
 
-# Kaggle API imports
-try:
-    from kaggle.api.kaggle_api_extended import KaggleApi
-    KAGGLE_AVAILABLE = True
-except ImportError:
-    KAGGLE_AVAILABLE = False
-    st.warning("⚠️ Kaggle API not available. Install with: pip install kaggle")
+# Set up Kaggle environment variables early to avoid authentication issues
+os.environ["KAGGLE_USERNAME"] = "sinchanamaruthii"
+os.environ["KAGGLE_KEY"] = "150ecdf7a0d87753b8dd28737f659343"
+
+# Kaggle API availability check - we'll check this when needed to avoid import issues
+KAGGLE_AVAILABLE = None  # Will be determined when first needed
 
 # Set page config
 st.set_page_config(page_title="ML Playground", layout="wide")
@@ -87,12 +86,26 @@ def load_huggingface_dataset(name):
         return None
 
 # Kaggle API functions
+def check_kaggle_availability():
+    """Check if Kaggle API is available"""
+    global KAGGLE_AVAILABLE
+    if KAGGLE_AVAILABLE is None:
+        try:
+            import kaggle
+            KAGGLE_AVAILABLE = True
+        except ImportError:
+            KAGGLE_AVAILABLE = False
+    return KAGGLE_AVAILABLE
+
 def setup_kaggle_api():
     """Setup Kaggle API authentication"""
-    if not KAGGLE_AVAILABLE:
+    if not check_kaggle_availability():
         return None
     
     try:
+        # Import KaggleApi only when needed
+        from kaggle.api.kaggle_api_extended import KaggleApi
+        
         # Create temp directory for credentials
         creds_dir = tempfile.mkdtemp()
         os.makedirs(os.path.join(creds_dir, ".kaggle"), exist_ok=True)
@@ -106,7 +119,12 @@ def setup_kaggle_api():
         with open(kaggle_json_path, "w") as f:
             json.dump(creds, f)
         
+        # Set environment variables for Kaggle API
         os.environ["KAGGLE_CONFIG_DIR"] = os.path.dirname(kaggle_json_path)
+        os.environ["KAGGLE_USERNAME"] = creds["username"]
+        os.environ["KAGGLE_KEY"] = creds["key"]
+        
+        # Create API instance and authenticate
         api = KaggleApi()
         api.authenticate()
         return api
@@ -116,7 +134,7 @@ def setup_kaggle_api():
 
 def download_kaggle_dataset(dataset_ref):
     """Download Kaggle dataset and return DataFrame"""
-    if not KAGGLE_AVAILABLE:
+    if not check_kaggle_availability():
         return None
     
     try:
@@ -136,7 +154,27 @@ def download_kaggle_dataset(dataset_ref):
         if csv_files:
             # Use the largest CSV file
             largest_csv = max(csv_files, key=os.path.getsize)
-            df = pd.read_csv(largest_csv)
+            
+            # Try different encodings to handle various dataset formats
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'utf-16']
+            df = None
+            
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(largest_csv, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+                except Exception:
+                    continue
+            
+            if df is None:
+                # If all encodings fail, try with error handling
+                try:
+                    df = pd.read_csv(largest_csv, encoding='utf-8', errors='ignore')
+                except Exception as e:
+                    st.error(f"Could not read CSV file: {str(e)}")
+                    return None
             
             # Clean up temp directory
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -152,7 +190,7 @@ def download_kaggle_dataset(dataset_ref):
 
 def search_kaggle_datasets(query, max_results=10):
     """Search Kaggle datasets"""
-    if not KAGGLE_AVAILABLE:
+    if not check_kaggle_availability():
         return []
     
     try:
@@ -811,7 +849,7 @@ elif dataset_source == "Hugging Face":
 elif dataset_source == "Fetch from Kaggle":
     st.sidebar.subheader("🏆 Kaggle Datasets")
     
-    if not KAGGLE_AVAILABLE:
+    if not check_kaggle_availability():
         st.sidebar.error("❌ Kaggle API not available. Install with: pip install kaggle")
     else:
         # Popular Kaggle datasets
@@ -872,8 +910,10 @@ elif dataset_source == "Fetch from Kaggle":
                     with st.sidebar.expander(f"{i+1}. {dataset.title or 'No title'}"):
                         st.write(f"**Reference:** `{dataset.ref}`")
                         st.write(f"**Description:** {dataset.subtitle or 'No description'}")
-                        st.write(f"**Size:** {dataset.size or 'Unknown'}")
-                        st.write(f"**Last Updated:** {dataset.lastUpdated or 'Unknown'}")
+                        if hasattr(dataset, 'size'):
+                            st.write(f"**Size:** {dataset.size or 'Unknown'}")
+                        if hasattr(dataset, 'lastUpdated'):
+                            st.write(f"**Last Updated:** {dataset.lastUpdated or 'Unknown'}")
                         
                         if st.button(f"📥 Download", key=f"download_search_{i}"):
                             with st.spinner(f"🔄 Downloading {dataset.title}..."):
