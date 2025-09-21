@@ -27,6 +27,22 @@ import openml
 from datasets import load_dataset
 from scipy import stats
 
+# AutoML imports
+try:
+    import autosklearn.classification
+    import autosklearn.regression
+    AUTOSKLEARN_AVAILABLE = True
+except ImportError:
+    AUTOSKLEARN_AVAILABLE = False
+
+# H2O ML imports
+try:
+    import h2o
+    from h2o.automl import H2OAutoML
+    H2O_AVAILABLE = True
+except ImportError:
+    H2O_AVAILABLE = False
+
 # Set up Kaggle environment variables early to avoid authentication issues
 # NOTE: Replace these with your own Kaggle API credentials from kaggle.com/account
 os.environ["KAGGLE_USERNAME"] = "sinchanamaruthii"
@@ -332,11 +348,139 @@ def preprocess_data(df, target_col):
         return train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Model training function
+def train_automl_classification(X_train, X_test, y_train, y_test, time_limit=120):
+    """Train AutoML classification model"""
+    try:
+        automl = autosklearn.classification.AutoSklearnClassifier(
+            time_left_for_this_task=time_limit,
+            per_run_time_limit=30,
+            memory_limit=3072,
+            tmp_folder='/tmp/autosklearn_classification_tmp',
+            delete_tmp_folder_after_terminate=True
+        )
+        
+        with st.spinner(f"🤖 AutoML Classification training (up to {time_limit}s)..."):
+            automl.fit(X_train, y_train)
+        
+        preds = automl.predict(X_test)
+        pred_proba = automl.predict_proba(X_test)
+        acc = accuracy_score(y_test, preds)
+        
+        return {
+            "accuracy": acc,
+            "predictions": preds,
+            "probabilities": pred_proba,
+            "model": automl
+        }
+    except Exception as e:
+        st.error(f"❌ AutoML Classification failed: {str(e)}")
+        return None
+
+def train_automl_regression(X_train, X_test, y_train, y_test, time_limit=120):
+    """Train AutoML regression model"""
+    try:
+        automl = autosklearn.regression.AutoSklearnRegressor(
+            time_left_for_this_task=time_limit,
+            per_run_time_limit=30,
+            memory_limit=3072,
+            tmp_folder='/tmp/autosklearn_regression_tmp',
+            delete_tmp_folder_after_terminate=True
+        )
+        
+        with st.spinner(f"🤖 AutoML Regression training (up to {time_limit}s)..."):
+            automl.fit(X_train, y_train)
+        
+        preds = automl.predict(X_test)
+        mse = mean_squared_error(y_test, preds)
+        mae = mean_absolute_error(y_test, preds)
+        r2 = r2_score(y_test, preds)
+        
+        return {
+            "MSE": mse,
+            "RMSE": np.sqrt(mse),
+            "MAE": mae,
+            "R2": r2,
+            "predictions": preds,
+            "model": automl
+        }
+    except Exception as e:
+        st.error(f"❌ AutoML Regression failed: {str(e)}")
+        return None
+
+def train_h2o_automl(X_train, X_test, y_train, y_test, max_runtime_secs=120):
+    """Train H2O AutoML model"""
+    try:
+        # Initialize H2O
+        if not h2o.cluster().is_running():
+            h2o.init(port=54321, max_mem_size="2G", nthreads=2)
+        
+        # Convert pandas to H2O frames
+        train_h2o = h2o.H2OFrame(pd.concat([X_train, pd.Series(y_train, name='target')], axis=1))
+        test_h2o = h2o.H2OFrame(X_test)
+        
+        # Determine if classification or regression
+        target_col = 'target'
+        is_classification = len(set(y_train)) < 20
+        
+        if is_classification:
+            train_h2o[target_col] = train_h2o[target_col].asfactor()
+        
+        # Train AutoML
+        automl = H2OAutoML(
+            max_runtime_secs=max_runtime_secs,
+            max_models=10,
+            seed=42,
+            stopping_metric='auto'
+        )
+        
+        with st.spinner(f"🚀 H2O AutoML training (up to {max_runtime_secs}s)..."):
+            automl.train(x=X_train.columns.tolist(), y=target_col, training_frame=train_h2o)
+        
+        # Get best model
+        best_model = automl.leader
+        
+        # Make predictions
+        preds_h2o = best_model.predict(test_h2o)
+        preds = preds_h2o.as_data_frame()['predict'].values
+        
+        if is_classification:
+            # For classification, get probabilities
+            prob_cols = [col for col in preds_h2o.columns if col.startswith('p')]
+            pred_proba = preds_h2o[prob_cols].as_data_frame().values
+            acc = accuracy_score(y_test, preds)
+            
+            return {
+                "accuracy": acc,
+                "predictions": preds,
+                "probabilities": pred_proba,
+                "model": automl,
+                "best_model": best_model
+            }
+        else:
+            # For regression
+            mse = mean_squared_error(y_test, preds)
+            mae = mean_absolute_error(y_test, preds)
+            r2 = r2_score(y_test, preds)
+            
+            return {
+                "MSE": mse,
+                "RMSE": np.sqrt(mse),
+                "MAE": mae,
+                "R2": r2,
+                "predictions": preds,
+                "model": automl,
+                "best_model": best_model
+            }
+    except Exception as e:
+        st.error(f"❌ H2O AutoML failed: {str(e)}")
+        return None
+
 def train_and_evaluate(X_train, X_test, y_train, y_test):
     results = {}
     trained_models = {}
     is_classification = len(set(y_train)) < 20
 
+    # Traditional ML Models
     if is_classification:
         models = {
             "Logistic Regression": LogisticRegression(max_iter=500),
@@ -376,6 +520,32 @@ def train_and_evaluate(X_train, X_test, y_train, y_test):
                 "model": model
             }
             trained_models[name] = model
+    
+    # AutoML Models
+    if AUTOSKLEARN_AVAILABLE:
+        try:
+            if is_classification:
+                automl_result = train_automl_classification(X_train, X_test, y_train, y_test, time_limit=120)
+                if automl_result:
+                    results["AutoML (AutoSklearn)"] = automl_result
+                    trained_models["AutoML (AutoSklearn)"] = automl_result["model"]
+            else:
+                automl_result = train_automl_regression(X_train, X_test, y_train, y_test, time_limit=120)
+                if automl_result:
+                    results["AutoML (AutoSklearn)"] = automl_result
+                    trained_models["AutoML (AutoSklearn)"] = automl_result["model"]
+        except Exception as e:
+            st.warning(f"⚠️ AutoML (AutoSklearn) failed: {str(e)}")
+    
+    # H2O AutoML Models
+    if H2O_AVAILABLE:
+        try:
+            h2o_result = train_h2o_automl(X_train, X_test, y_train, y_test, max_runtime_secs=120)
+            if h2o_result:
+                results["H2O AutoML"] = h2o_result
+                trained_models["H2O AutoML"] = h2o_result["model"]
+        except Exception as e:
+            st.warning(f"⚠️ H2O AutoML failed: {str(e)}")
     
     return results, trained_models
 
@@ -797,6 +967,11 @@ with st.sidebar.expander("ℹ️ Dataset Info"):
     **🏆 Kaggle**: Popular ML competition datasets
     - Titanic, House Prices, Credit Card Fraud
     - Search and download directly from Kaggle
+    
+    **🤖 Advanced ML Models**: H2O AutoML & Traditional ML
+    - H2O AutoML: Enterprise-grade automated machine learning (Windows compatible)
+    - Traditional models: Logistic/Linear Regression, Random Forest
+    - Note: AutoSklearn not available on Windows
     """)
 
 df = None
